@@ -6,6 +6,20 @@
 # rocThrust dependencies
 # ###########################
 
+# NOTE: We disable the ROCMChecks.cmake warning noting that we meddle with
+#       global state. This is consequence of abusing the CMake CXX language
+#       which HIP piggybacks on top of. This kind of HIP support has one chance
+#       at observing the global flags, at the find_package(HIP) invocation.
+#       The device compiler won't be able to pick up changes after that, hence
+#       the warning.
+set(USER_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+if(DEFINED BUILD_SHARED_LIBS)
+  set(USER_BUILD_SHARED_LIBS ${BUILD_SHARED_LIBS})
+endif()
+set(USER_ROCM_WARN_TOOLCHAIN_VAR ${ROCM_WARN_TOOLCHAIN_VAR})
+
+set(ENV{ROCMCHECKS_WARN_TOOLCHAIN_VAR} OFF CACHE BOOL "")
+
 # HIP dependency is handled earlier in the project cmake file
 # when VerifyCompiler.cmake is included.
 
@@ -63,3 +77,37 @@ if(BUILD_TEST)
     find_package(GTest REQUIRED CONFIG PATHS ${GTEST_ROOT})
   endif()
 endif()
+
+if(BUILD_BENCHMARKS)
+  include(FetchContent)
+  if(NOT DEPENDENCIES_FORCE_DOWNLOAD)
+    find_package(benchmark CONFIG QUIET)
+  endif()
+  if(NOT TARGET benchmark::benchmark)
+    message(STATUS "Google Benchmark not found. Fetching...")
+    option(BENCHMARK_ENABLE_TESTING "Enable testing of the benchmark library." OFF)
+    option(BENCHMARK_ENABLE_INSTALL "Enable installation of benchmark." OFF)
+    FetchContent_Declare(
+      googlebench
+      GIT_REPOSITORY https://github.com/google/benchmark.git
+      GIT_TAG        v1.8.0
+    )
+    set(HAVE_STD_REGEX ON)
+    set(RUN_HAVE_STD_REGEX 1)
+    FetchContent_MakeAvailable(googlebench)
+    if(NOT TARGET benchmark::benchmark)
+      add_library(benchmark::benchmark ALIAS benchmark)
+    endif()
+  else()
+    find_package(benchmark CONFIG REQUIRED)
+  endif()
+endif(BUILD_BENCHMARKS)
+
+# Restore user global state
+set(CMAKE_CXX_FLAGS ${USER_CXX_FLAGS})
+if(DEFINED USER_BUILD_SHARED_LIBS)
+  set(BUILD_SHARED_LIBS ${USER_BUILD_SHARED_LIBS})
+else()
+  unset(BUILD_SHARED_LIBS CACHE )
+endif()
+set(ROCM_WARN_TOOLCHAIN_VAR ${USER_ROCM_WARN_TOOLCHAIN_VAR} CACHE BOOL "")
