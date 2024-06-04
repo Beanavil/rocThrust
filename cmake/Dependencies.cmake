@@ -48,6 +48,30 @@ if(NOT rocprim_FOUND)
   find_package(rocprim REQUIRED CONFIG PATHS ${CMAKE_CURRENT_BINARY_DIR}/deps/rocprim NO_DEFAULT_PATH)
 endif()
 
+# rocRAND (https://github.com/ROCmSoftwarePlatform/rocRAND.git)
+if(BUILD_BENCHMARKS)
+  if(NOT DOWNLOAD_ROCRAND)
+    find_package(rocrand QUIET)
+  endif()
+  if(NOT rocrand_FOUND)
+    message(STATUS "Downloading and building rocrand.")
+    download_project(
+      PROJ                rocrand
+      GIT_REPOSITORY      https://github.com/ROCmSoftwarePlatform/rocRAND.git
+      GIT_TAG             develop
+      INSTALL_DIR         ${CMAKE_CURRENT_BINARY_DIR}/deps/rocrand
+      CMAKE_ARGS          -DBUILD_TEST=OFF -DBUILD_BENCHMARK=OFF -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DCMAKE_PREFIX_PATH=/opt/rocm
+      LOG_DOWNLOAD        TRUE
+      LOG_CONFIGURE       TRUE
+      LOG_BUILD           TRUE
+      LOG_INSTALL         TRUE
+      BUILD_PROJECT       TRUE
+      UPDATE_DISCONNECTED TRUE # Never update automatically from the remote repository
+    )
+    find_package(rocrand REQUIRED CONFIG PATHS ${CMAKE_CURRENT_BINARY_DIR}/deps/rocrand NO_DEFAULT_PATH)
+  endif()
+endif(BUILD_BENCHMARKS)
+
 # Test dependencies
 if(BUILD_TEST)
   if(NOT DEPENDENCIES_FORCE_DOWNLOAD)

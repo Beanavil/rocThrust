@@ -15,6 +15,49 @@ set(BENCHMARKS_DIR "bench")
 # Functions
 # ****************************************************************************
 
+function(add_new_thrust_benchmark BENCHMARK_NAME BENCHMARK_SOURCE USES_GOOGLE_BENCH)
+  set(BENCHMARK_TARGET "benchmark_trust_${BENCHMARK_NAME}")
+  set_source_files_properties(${BENCHMARK_SOURCE}
+      PROPERTIES
+          LANGUAGE CXX
+  )
+  add_executable(${BENCHMARK_TARGET} ${BENCHMARK_SOURCE})
+  target_include_directories(${BENCHMARK_TARGET} PRIVATE ${ROCBENCH_DIR})
+
+  target_link_libraries(${BENCHMARK_TARGET}
+      PRIVATE
+          rocthrust
+          roc::rocprim_hip
+  )
+
+  ## Add rocRAND for rocbench_helper
+  target_link_libraries(${BENCHMARK_TARGET}
+      PRIVATE
+          rocthrust
+          roc::rocrand
+  )
+  # Internal benchmark does not use Google Benchmark.
+  # This can be omited when that benchmark is removed.
+  if(USES_GOOGLE_BENCH)
+      target_link_libraries(${BENCHMARK_TARGET}
+          PRIVATE
+              rocthrust
+              benchmark::benchmark
+  )
+  endif()
+  foreach(gpu_target ${GPU_TARGETS})
+      target_link_libraries(${BENCHMARK_TARGET}
+          INTERFACE
+              --cuda-gpu-arch=${gpu_target}
+      )
+  endforeach()
+  set_target_properties(${BENCHMARK_TARGET}
+      PROPERTIES
+          RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/benchmarks/"
+  )
+  rocm_install(TARGETS ${BENCHMARK_TARGET} COMPONENT benchmarks)
+endfunction()
+
 # Gets all subdirs of benchmarks recursively
 function(get_recursive_subdirs subdirs dir_prefix dir_name)
   set(dirs)
