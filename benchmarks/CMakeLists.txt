@@ -10,6 +10,7 @@ set(BENCHMARKS_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 # Subdirectory of BENCHMARKS_ROOT containing all the .cu files grouped in
 # subdirectories accordingly to the functionality benchmarked
 set(BENCHMARKS_DIR "bench")
+set(ROCBENCH_DIR "rocbench/include")
 
 # ****************************************************************************
 # Functions
