@@ -24,8 +24,11 @@ stages:
 variables:
   # Helper variables
   PACKAGE_DIR: $BUILD_DIR/package
+  ROCRAND_GIT_URL: projects.streamhpc.com/amd/rocRAND.git
   ROCPRIM_GIT_BRANCH: develop_stream
+  ROCRAND_GIT_BRANCH: develop_stream
   ROCPRIM_DIR: ${CI_PROJECT_DIR}/rocPRIM
+  ROCRAND_DIR: ${CI_PROJECT_DIR}/rocRAND
 
 copyright-date:
   extends:
@@ -77,6 +80,25 @@ copyright-date:
       -G "DEB"
     - $SUDO_CMD dpkg -i rocprim*.deb
 
+.install-rocrand:
+  script:
+    - branch_name="$ROCRAND_GIT_BRANCH"
+    - if [ $CI_COMMIT_BRANCH == develop ] || [ $CI_COMMIT_BRANCH == master ]; then branch_name=$CI_COMMIT_BRANCH;
+    - fi;
+    - git clone -b $branch_name https://gitlab-ci-token:${CI_JOB_TOKEN}@${ROCRAND_GIT_URL} $ROCRAND_DIR
+    - cmake
+      -S "$ROCRAND_DIR"
+      -B "$ROCRAND_DIR/build"
+      -G Ninja
+      -D CMAKE_CXX_COMPILER=hipcc
+      -D CMAKE_BUILD_TYPE=Release
+      -D GPU_TARGETS=$GPU_TARGETS
+    - cmake --build "$ROCRAND_DIR/build" --target package
+    - cd "$ROCRAND_DIR/build"
+    - cpack
+      -G "DEB"
+    - $SUDO_CMD dpkg -i rocrand*.deb
+
 .build:common:
   stage: build
   extends:
@@ -86,6 +108,7 @@ copyright-date:
     - build
   script:
     - !reference [.install-rocprim, script]
+    - !reference [.install-rocrand, script]
     # Setup env vars for testing
     - rng_seed_count=0; prng_seeds="0";
     - if [ $CI_COMMIT_BRANCH == develop_stream ] ; then rng_seed_count=3; prng_seeds="0, 1000";
