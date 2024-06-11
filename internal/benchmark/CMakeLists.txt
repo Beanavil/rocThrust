@@ -9,4 +9,4 @@ include(Benchmarks)
 # ****************************************************************************
 message (STATUS "Configuring internal benchmarks")
 
-add_thrust_benchmark("internal_bench" "bench.cu" OFF)
+add_thrust_benchmark("internal_bench" "bench.cu" OFF "")
