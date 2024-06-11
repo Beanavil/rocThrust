@@ -10,7 +10,6 @@ set(BENCHMARKS_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 # Subdirectory of BENCHMARKS_ROOT containing all the .cu files grouped in
 # subdirectories accordingly to the functionality benchmarked
 set(BENCHMARKS_DIR "bench")
-set(ROCBENCH_DIR "rocbench/include")
 
 # ****************************************************************************
 # Functions
@@ -59,7 +58,7 @@ function(add_bench_dir bench_dir)
       set(real_bench_src "${bench_src}")
       # Get file name without directory nor last extension
       get_filename_component(bench_name "${bench_src}" NAME_WLE)
-      add_thrust_benchmark("${algo_name}_${bench_name}" ${bench_src} ON ${ROCBENCH_DIR})
+      add_thrust_benchmark("${algo_name}_${bench_name}" ${bench_src} ON)
   endforeach()
 endfunction()
 
