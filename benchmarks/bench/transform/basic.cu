@@ -75,7 +75,7 @@ struct basic
         thrust::device_vector<T> input
             = bench_utils::generate(elements,
                                     seed_type,
-                                    0 /*entropy 1.000*/,
+                                    bit_entropy::_1_000,
                                     T {0} /*magic number used in Thrust*/,
                                     T {42} /*magic number used in Thrust*/);
         thrust::device_vector<T> output(elements);

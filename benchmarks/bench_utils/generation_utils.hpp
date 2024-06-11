@@ -103,51 +103,70 @@ private:
     bool                        is_random;
 };
 
-float get_entropy_percentage(int entropy_reduction)
+namespace detail
 {
-    switch(entropy_reduction)
-    {
-    case 0:
-        return 100.0;
-    case 1:
-        return 81.1;
-    case 2:
-        return 54.4;
-    case 3:
-        return 33.7;
-    case 4:
-        return 20.1;
-    default:
-        return 0;
-    }
-}
+
+    static const std::map<std::string, bit_entropy> string_entropy_map
+        = {{"0.000", bit_entropy::_0_000},
+           {"0.201", bit_entropy::_0_201},
+           {"0.337", bit_entropy::_0_337},
+           {"0.544", bit_entropy::_0_544},
+           {"0.811", bit_entropy::_0_811},
+           {"1.000", bit_entropy::_1_000}};
+
+    static const std::map<bit_entropy, double> entropy_probability_map
+        = {{bit_entropy::_0_000, 0.0},
+           {bit_entropy::_0_811, 0.811},
+           {bit_entropy::_0_544, 0.544},
+           {bit_entropy::_0_337, 0.337},
+           {bit_entropy::_0_201, 0.201},
+           {bit_entropy::_1_000, 1.0}};
+
+} // namespace detail
 
 template <typename T>
-T value_from_entropy(float64_t percentage)
+T value_from_entropy(double percentage)
 {
-    if(percentage == 100.0)
+    if(percentage == 1)
     {
         return std::numeric_limits<T>::max();
     }
 
-    percentage /= 100; // convert percentage to per one
-
-    // Select value from the line between the lowest and the highest representable
-    // values of type T based on the entropy value.
     const auto max_val = static_cast<double>(std::numeric_limits<T>::max());
     const auto min_val = static_cast<double>(std::numeric_limits<T>::lowest());
-    const auto result  = min_val + percentage * (max_val - min_val);
+    const auto result  = min_val + percentage * max_val - percentage * min_val;
     return static_cast<T>(result);
 }
 
-const int entropy_reductions[] = {0, 2, 4, 6};
+bit_entropy str_to_entropy(const std::string& str)
+{
+    auto it = detail::string_entropy_map.find(str);
+    if(it != detail::string_entropy_map.end())
+    {
+        return it->second;
+    }
+
+    throw std::runtime_error("Can't convert string to bit entropy");
+}
+
+double entropy_to_probability(bit_entropy entropy)
+{
+    auto it = detail::entropy_probability_map.find(entropy);
+    if(it != detail::entropy_probability_map.end())
+    {
+        return it->second;
+    }
+
+    // Default case (for unknown entropy values)
+    return 0.0;
+}
 
 namespace detail
 {
     template <typename T>
     thrust::device_vector<T> generate(const std::size_t elements,
                                       const std::string seed_type,
-                                      const int         entropy_reduction,
+                                      const bit_entropy entropy,
                                       T                 min,
                                       T                 max)
     {
@@ -156,28 +175,32 @@ namespace detail
         const unsigned int         seed = managed_seed.get_0();
         std::default_random_engine gen(seed);
 
-        if(entropy_reduction >= 5)
-        {
-            thrust::generate(data.begin(), data.end(), gen);
-            return data;
-        }
+        // TODO: remove
+        (void)entropy;
+        (void)min;
+        (void)max;
+        // if(entropy >= 5)
+        // {
+        //     thrust::generate(data.begin(), data.end(), gen);
+        //     return data;
+        // }
 
-        // If entropy is not 0, reduce entropy by applying bitwise AND to random bits:
-        // "An Improved Supercomputer Sorting Benchmark", 1992
-        // Kurt Thearling & Stephen Smith.
-        const std::size_t max_random_size = 1024 * 1024 + 4321;
-        thrust::generate(data.begin(), data.begin() + std::min(elements, max_random_size), [&]() {
-            auto v = gen();
-            for(int e = 0; e < entropy_reduction; e++)
-            {
-                v &= gen();
-            }
-            return static_cast<T>(min + v * (max - min));
-        });
-        for(size_t i = max_random_size; i < elements; i += max_random_size)
-        {
-            std::copy_n(data.begin(), std::min(elements - i, max_random_size), data.begin() + i);
-        }
+        // // If entropy is not 0, reduce entropy by applying bitwise AND to random bits:
+        // // "An Improved Supercomputer Sorting Benchmark", 1992
+        // // Kurt Thearling & Stephen Smith.
+        // const std::size_t max_random_size = 1024 * 1024 + 4321;
+        // thrust::generate(data.begin(), data.begin() + std::min(elements, max_random_size), [&]() {
+        //     auto v = gen();
+        //     for(int e = 0; e < entropy; e++)
+        //     {
+        //         v &= gen();
+        //     }
+        //     return static_cast<T>(min + v * (max - min));
+        // });
+        // for(size_t i = max_random_size; i < elements; i += max_random_size)
+        // {
+        //     std::copy_n(data.begin(), std::min(elements - i, max_random_size), data.begin() + i);
+        // }
         return data;
     }
 
@@ -202,7 +225,7 @@ namespace detail
 
         segment_offsets = bench_utils::detail::generate(segment_offsets.size(),
                                                         seed_type,
-                                                        0 /*100*/,
+                                                        bit_entropy::_1_000,
                                                         static_cast<T>(min_segment_size),
                                                         static_cast<T>(max_segment_size));
 
@@ -358,21 +381,21 @@ namespace detail
     {
         const std::size_t elements {0};
         const std::string seed_type {"random"};
-        const int         entropy_reduction {0 /*100*/};
+        const bit_entropy entropy {bit_entropy::_1_000};
 
         device_generator_base_t(std::size_t        m_elements,
                                 const std::string& m_seed_type,
-                                int                m_entropy_reduction)
+                                bit_entropy        m_entropy)
             : elements(m_elements)
             , seed_type(m_seed_type)
-            , entropy_reduction(m_entropy_reduction)
+            , entropy(m_entropy)
         {
         }
 
         template <typename T>
         thrust::device_vector<T> generate(T min, T max)
         {
-            return bench_utils::detail::generate(elements, seed_type, entropy_reduction, min, max);
+            return bench_utils::detail::generate(elements, seed_type, entropy, min, max);
         }
     };
 
@@ -384,10 +407,10 @@ namespace detail
 
         device_vector_generator_t(std::size_t        m_elements,
                                   const std::string& m_seed_type,
-                                  int                m_entropy_reduction,
+                                  bit_entropy        m_entropy,
                                   T                  m_min,
                                   T                  m_max)
-            : device_generator_base_t(m_elements, m_seed_type, m_entropy_reduction)
+            : device_generator_base_t(m_elements, m_seed_type, m_entropy)
             , min(m_min)
             , max(m_max)
         {
@@ -404,8 +427,8 @@ namespace detail
     {
         device_vector_generator_t(std::size_t        m_elements,
                                   const std::string& m_seed_type,
-                                  int                m_entropy_reduction)
-            : device_generator_base_t(m_elements, m_seed_type, m_entropy_reduction)
+                                  bit_entropy        m_entropy)
+            : device_generator_base_t(m_elements, m_seed_type, m_entropy)
         {
         }
 
@@ -472,7 +495,7 @@ namespace detail
         template <class T>
         device_vector_generator_t<T> operator()(std::size_t       elements,
                                                 const std::string seed_type,
-                                                const int         entropy = 0 /*100*/,
+                                                const bit_entropy entropy = bit_entropy::_1_000,
                                                 T                 min = std::numeric_limits<T>::min,
                                                 T max = std::numeric_limits<T>::max()) const
         {
@@ -481,7 +504,8 @@ namespace detail
 
         device_vector_generator_t<void> operator()(std::size_t       elements,
                                                    const std::string seed_type,
-                                                   const int         entropy = 0 /*100*/) const
+                                                   const bit_entropy entropy
+                                                   = bit_entropy::_1_000) const
         {
             return {elements, seed_type, entropy};
         }

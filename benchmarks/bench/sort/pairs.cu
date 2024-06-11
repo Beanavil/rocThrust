@@ -40,9 +40,9 @@ struct pairs
 {
     template <typename KeyT, typename ValueT, typename Policy = thrust::detail::device_t>
     float64_t
-    run(const std::size_t elements, const std::string seed_type, const int entropy_reduction)
+    run(const std::size_t elements, const std::string seed_type, const std::string entropy_str)
     {
-        const auto entropy = bench_utils::get_entropy_percentage(entropy_reduction) / 100.0f;
+        const auto entropy = bench_utils::str_to_entropy(entropy_str);
 
         thrust::device_vector<KeyT>   keys = bench_utils::generate(elements, seed_type, entropy);
         thrust::device_vector<ValueT> vals = bench_utils::generate(elements, seed_type);
@@ -61,7 +61,7 @@ template <class Benchmark, class KeyT, class ValueT>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
                    const std::string seed_type,
-                   const int         entropy_reduction)
+                   const std::string entropy_str)
 {
     // Benchmark object
     Benchmark benchmark {};
@@ -71,8 +71,7 @@ void run_benchmark(benchmark::State& state,
 
     for(auto _ : state)
     {
-        float64_t duration
-            = benchmark.template run<KeyT, ValueT>(elements, seed_type, entropy_reduction);
+        float64_t duration = benchmark.template run<KeyT, ValueT>(elements, seed_type, entropy_str);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -86,44 +85,43 @@ void run_benchmark(benchmark::State& state,
     state.SetLabel(std::to_string(gpu_cv));
 }
 
-#define CREATE_BENCHMARK(KeyT, ValueT, Elements, EntropyReduction)                                 \
-    benchmark::RegisterBenchmark(                                                                  \
-        bench_utils::bench_naming::format_name(                                                    \
-            "{algo:sort,subalgo:" + name + ",key_type:" #KeyT + ",value_type:" #ValueT             \
-            + ",elements:" #Elements                                                               \
-            + ",entropy:" + std::to_string(bench_utils::get_entropy_percentage(EntropyReduction))) \
-            .c_str(),                                                                              \
-        run_benchmark<Benchmark, KeyT, ValueT>,                                                    \
-        Elements,                                                                                  \
-        seed_type,                                                                                 \
-        EntropyReduction)
+#define CREATE_BENCHMARK(KeyT, ValueT, Elements, EntropyStr)                                     \
+    benchmark::RegisterBenchmark(                                                                \
+        bench_utils::bench_naming::format_name("{algo:sort,subalgo:" + name + ",key_type:" #KeyT \
+                                               + ",value_type:" #ValueT + ",elements:" #Elements \
+                                               + ",entropy:" + #EntropyStr)                      \
+            .c_str(),                                                                            \
+        run_benchmark<Benchmark, KeyT, ValueT>,                                                  \
+        Elements,                                                                                \
+        seed_type,                                                                               \
+        EntropyStr)
 
-#define BENCHMARK_VALUE_TYPE(key_type, value_type, entropy)       \
-    CREATE_BENCHMARK(key_type, value_type, 1 << 16, entropy),     \
-        CREATE_BENCHMARK(key_type, value_type, 1 << 20, entropy), \
-        CREATE_BENCHMARK(key_type, value_type, 1 << 24, entropy), \
-        CREATE_BENCHMARK(key_type, value_type, 1 << 28, entropy)
+#define BENCHMARK_VALUE_TYPE(key_type, value_type, entropy_str)       \
+    CREATE_BENCHMARK(key_type, value_type, 1 << 16, entropy_str),     \
+        CREATE_BENCHMARK(key_type, value_type, 1 << 20, entropy_str), \
+        CREATE_BENCHMARK(key_type, value_type, 1 << 24, entropy_str), \
+        CREATE_BENCHMARK(key_type, value_type, 1 << 28, entropy_str)
 
-#define BENCHMARK_KEY_TYPE_ENTROPY(key_type, entropy)     \
-    BENCHMARK_VALUE_TYPE(key_type, int8_t, entropy),      \
-        BENCHMARK_VALUE_TYPE(key_type, int16_t, entropy), \
-        BENCHMARK_VALUE_TYPE(key_type, int32_t, entropy), \
-        BENCHMARK_VALUE_TYPE(key_type, int64_t, entropy)
+#define BENCHMARK_KEY_TYPE_ENTROPY(key_type, entropy_str)     \
+    BENCHMARK_VALUE_TYPE(key_type, int8_t, entropy_str),      \
+        BENCHMARK_VALUE_TYPE(key_type, int16_t, entropy_str), \
+        BENCHMARK_VALUE_TYPE(key_type, int32_t, entropy_str), \
+        BENCHMARK_VALUE_TYPE(key_type, int64_t, entropy_str)
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
                     std::vector<benchmark::internal::Benchmark*>& benchmarks,
                     const std::string                             seed_type)
 {
-    constexpr int entropy_reductions[] = {0, 2, 6}; // 1.000, 0.544, 0.000;
+    const std::string entropy_strs[] = {"1.000", "0.544", "0.000"};
 
-    for(int entropy_reduction : entropy_reductions)
+    for(std::string entropy_str : entropy_strs)
     {
         std::vector<benchmark::internal::Benchmark*> bs
-            = {BENCHMARK_KEY_TYPE_ENTROPY(int8_t, entropy_reduction),
-               BENCHMARK_KEY_TYPE_ENTROPY(int16_t, entropy_reduction),
-               BENCHMARK_KEY_TYPE_ENTROPY(int32_t, entropy_reduction),
-               BENCHMARK_KEY_TYPE_ENTROPY(int64_t, entropy_reduction)};
+            = {BENCHMARK_KEY_TYPE_ENTROPY(int8_t, entropy_str),
+               BENCHMARK_KEY_TYPE_ENTROPY(int16_t, entropy_str),
+               BENCHMARK_KEY_TYPE_ENTROPY(int32_t, entropy_str),
+               BENCHMARK_KEY_TYPE_ENTROPY(int64_t, entropy_str)};
         benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
     }
 }

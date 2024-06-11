@@ -47,4 +47,19 @@ using uint128_t = __uint128_t;
 using float32_t = float;
 using float64_t = double;
 
+namespace detail
+{
+constexpr auto bit_entropy_default = (1 << 12) + (200 - 96); // 4200
+} // namespace detail
+
+enum class bit_entropy
+{
+    _0_000 = detail::bit_entropy_default,
+    _0_201 = 4,
+    _0_337 = 3,
+    _0_544 = 2,
+    _0_811 = 1,
+    _1_000 = 0
+};
+
 #endif // ROCTHRUST_BENCHMARKS_BENCH_UTILS_TYPES_HPP_
