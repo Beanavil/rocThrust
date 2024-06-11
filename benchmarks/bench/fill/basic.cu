@@ -54,9 +54,7 @@ struct basic
 };
 
 template <class Benchmark, class T>
-void run_benchmark(benchmark::State& state,
-                   const std::size_t elements,
-                   const bench_utils::managed_seed& /*seed*/)
+void run_benchmark(benchmark::State& state, const std::size_t elements)
 {
     // Benchmark object
     Benchmark benchmark {};
@@ -85,8 +83,7 @@ void run_benchmark(benchmark::State& state,
                                                + ",elements:" #Elements)                        \
             .c_str(),                                                                           \
         run_benchmark<Benchmark<Val>, T>,                                                       \
-        Elements,                                                                               \
-        seed)
+        Elements)
 
 #define BENCHMARK_TYPE(type)                                          \
     CREATE_BENCHMARK(type, 1 << 16), CREATE_BENCHMARK(type, 1 << 20), \
@@ -94,8 +91,7 @@ void run_benchmark(benchmark::State& state,
 
 template <template <int> class Benchmark, int Val = 42 /*magic number in Thrust's benchmark*/>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const bench_utils::managed_seed&              seed)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     std::vector<benchmark::internal::Benchmark*> bs = {BENCHMARK_TYPE(int8_t),
                                                        BENCHMARK_TYPE(int16_t),
@@ -112,17 +108,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string               seed_type = "random";
-    const bench_utils::managed_seed seed(seed_type);
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<basic>("basic", benchmarks, seed);
+    add_benchmarks<basic>("basic", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

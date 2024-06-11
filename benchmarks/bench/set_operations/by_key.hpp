@@ -48,7 +48,6 @@ struct by_key
               typename Policy = thrust::detail::device_t>
     float64_t run(benchmark::State& state,
                   const std::size_t elements,
-                  const std::string seed_type,
                   const OpT         op,
                   const std::string entropy_str,
                   const std::size_t input_size_ratio)
@@ -58,8 +57,7 @@ struct by_key
         const auto elements_in_A
             = static_cast<std::size_t>(static_cast<double>(input_size_ratio * elements) / 100.0f);
 
-        thrust::device_vector<KeyT> input_keys
-            = bench_utils::generate(elements, seed_type, entropy);
+        thrust::device_vector<KeyT> input_keys = bench_utils::generate(elements, entropy);
         thrust::device_vector<KeyT> output_keys(elements);
 
         thrust::device_vector<ValueT> input_vals(elements);
@@ -111,7 +109,6 @@ struct by_key
 template <class KeyT, class ValueT, class OpT>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
-                   const std::string seed_type,
                    const std::string entropy_str,
                    const std::size_t input_size_ratio)
 {
@@ -124,7 +121,7 @@ void run_benchmark(benchmark::State& state,
     for(auto _ : state)
     {
         float64_t duration = benchmark.template run<KeyT, ValueT, OpT>(
-            state, elements, seed_type, OpT {}, entropy_str, input_size_ratio);
+            state, elements, OpT {}, entropy_str, input_size_ratio);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -144,7 +141,6 @@ void run_benchmark(benchmark::State& state,
                                      .c_str(),                                                     \
                                  run_benchmark<KeyT, ValueT, OpT>,                                 \
                                  Elements,                                                         \
-                                 seed_type,                                                        \
                                  EntropyStr,                                                       \
                                  InputSizeRatio)
 
@@ -165,8 +161,7 @@ void run_benchmark(benchmark::State& state,
 
 template <class OpT>
 void add_benchmarks(const std::string&                            algo_name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     const std::string entropy_strs[] = {"1.000", "0.201"};
 

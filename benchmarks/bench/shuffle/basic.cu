@@ -42,10 +42,7 @@
 struct basic
 {
     template <typename T, typename Policy = thrust::detail::device_t>
-    float64_t run(benchmark::State& /*state*/,
-                  const std::size_t elements,
-                  const std::string /*seed_type*/,
-                  const std::string rng_engine)
+    float64_t run(const std::size_t elements, const std::string rng_engine)
     {
         thrust::device_vector<T> data(elements);
 
@@ -83,7 +80,6 @@ struct basic
 template <class Benchmark, class T>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
-                   const std::string seed_type,
                    const std::string rng_engine)
 {
     // Benchmark object
@@ -94,7 +90,7 @@ void run_benchmark(benchmark::State& state,
 
     for(auto _ : state)
     {
-        float64_t duration = benchmark.template run<T>(state, elements, seed_type, rng_engine);
+        float64_t duration = benchmark.template run<T>(elements, rng_engine);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -115,7 +111,6 @@ void run_benchmark(benchmark::State& state,
                                      .c_str(),                                             \
                                  run_benchmark<Benchmark, T>,                              \
                                  Elements,                                                 \
-                                 seed_type,                                                \
                                  RngEngine)
 
 #define BENCHMARK_RNG_ENGINE(type, rng_engine)                                                \
@@ -128,8 +123,7 @@ void run_benchmark(benchmark::State& state,
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     std::vector<benchmark::internal::Benchmark*> bs
         = { BENCHMARK_TYPE(int8_t),
@@ -150,16 +144,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string seed_type = "random";
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<basic>("basic", benchmarks, seed_type);
+    add_benchmarks<basic>("basic", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

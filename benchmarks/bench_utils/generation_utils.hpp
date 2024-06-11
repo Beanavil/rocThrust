@@ -44,6 +44,9 @@
 #include <thrust/sequence.h>
 #include <thrust/tuple.h>
 
+// rocRAND
+#include <rocrand/rocrand.h>
+
 // rocPRIM/CUB
 #if THRUST_DEVICE_SYSTEM == THRUST_DEVICE_SYSTEM_HIP
 #include <rocprim/rocprim.hpp>
@@ -163,45 +166,250 @@ double entropy_to_probability(bit_entropy entropy)
 
 namespace detail
 {
+    // Unary operators
+
     template <typename T>
-    thrust::device_vector<T> generate(const std::size_t elements,
-                                      const std::string seed_type,
-                                      const bit_entropy entropy,
-                                      T                 min,
-                                      T                 max)
+    struct random_to_item_t
     {
-        std::vector<T>             data(elements);
-        const managed_seed         managed_seed {seed_type};
-        const unsigned int         seed = managed_seed.get_0();
-        std::default_random_engine gen(seed);
+        double m_min;
+        double m_max;
 
-        // TODO: remove
-        (void)entropy;
-        (void)min;
-        (void)max;
-        // if(entropy >= 5)
-        // {
-        //     thrust::generate(data.begin(), data.end(), gen);
-        //     return data;
-        // }
+        __host__ __device__ random_to_item_t(T min, T max)
+            : m_min(static_cast<double>(min))
+            , m_max(static_cast<double>(max))
+        {
+        }
 
-        // // If entropy is not 0, reduce entropy by applying bitwise AND to random bits:
-        // // "An Improved Supercomputer Sorting Benchmark", 1992
-        // // Kurt Thearling & Stephen Smith.
-        // const std::size_t max_random_size = 1024 * 1024 + 4321;
-        // thrust::generate(data.begin(), data.begin() + std::min(elements, max_random_size), [&]() {
-        //     auto v = gen();
-        //     for(int e = 0; e < entropy; e++)
-        //     {
-        //         v &= gen();
-        //     }
-        //     return static_cast<T>(min + v * (max - min));
-        // });
-        // for(size_t i = max_random_size; i < elements; i += max_random_size)
-        // {
-        //     std::copy_n(data.begin(), std::min(elements - i, max_random_size), data.begin() + i);
-        // }
-        return data;
+        __host__ __device__ T operator()(double random_value) const
+        {
+            if(std::is_floating_point<T>::value)
+            {
+                return static_cast<T>((m_max - m_min) * random_value + m_min);
+            }
+            else
+            {
+                return static_cast<T>(std::floor((m_max - m_min + 1) * random_value + m_min));
+            }
+        }
+    };
+
+    struct and_t
+    {
+        template <class T>
+        __host__ __device__ T operator()(T a, T b) const
+        {
+            return a & b;
+        }
+
+        __host__ __device__ float operator()(float a, float b) const
+        {
+            const std::uint32_t result
+                = reinterpret_cast<std::uint32_t&>(a) & reinterpret_cast<std::uint32_t&>(b);
+            return reinterpret_cast<const float&>(result);
+        }
+
+        __host__ __device__ double operator()(double a, double b) const
+        {
+            const std::uint64_t result
+                = reinterpret_cast<std::uint64_t&>(a) & reinterpret_cast<std::uint64_t&>(b);
+            return reinterpret_cast<const double&>(result);
+        }
+
+        __host__ __device__ std::complex<float> operator()(std::complex<float> a,
+                                                           std::complex<float> b) const
+        {
+            double a_real = a.real();
+            double a_imag = a.imag();
+
+            double b_real = b.real();
+            double b_imag = b.imag();
+
+            const std::uint64_t result_real = reinterpret_cast<std::uint64_t&>(a_real)
+                                              & reinterpret_cast<std::uint64_t&>(b_real);
+
+            const std::uint64_t result_imag = reinterpret_cast<std::uint64_t&>(a_imag)
+                                              & reinterpret_cast<std::uint64_t&>(b_imag);
+
+            return {static_cast<float>(reinterpret_cast<const double&>(result_real)),
+                    static_cast<float>(reinterpret_cast<const double&>(result_imag))};
+        }
+    };
+
+    struct random_to_probability_t
+    {
+        double m_probability;
+
+        __host__ __device__ bool operator()(double random_value) const
+        {
+            return random_value < m_probability;
+        }
+    };
+
+    // Generators
+
+    class device_generator
+    {
+    public:
+        device_generator()
+        {
+            rocrand_create_generator(&m_gen, ROCRAND_RNG_PSEUDO_DEFAULT);
+        }
+
+        ~device_generator()
+        {
+            rocrand_destroy_generator(m_gen);
+        }
+
+        double* new_uniform_distribution(seed_t seed, std::size_t num_items)
+        {
+            m_distribution.resize(num_items);
+            m_distribution.clear();
+            double* d_distribution = thrust::raw_pointer_cast(m_distribution.data());
+            rocrand_set_seed(m_gen, seed);
+            rocrand_generate_uniform_double(m_gen, d_distribution, num_items);
+
+            return d_distribution;
+        }
+
+    private:
+        thrust::device_vector<double> m_distribution;
+        rocrand_generator             m_gen;
+    };
+
+    static device_generator default_generator;
+    static seed_t           default_seed {0};
+
+    template <typename T>
+    auto generate_impl(device_generator&            generator,
+                       seed_t&                      seed,
+                       thrust::device_vector<bool>& buff,
+                       std::size_t                  elements,
+                       bit_entropy                  entropy,
+                       bool /*min*/,
+                       bool /*max*/
+                       ) -> std::enable_if_t<std::is_same<bool, T>::value, void>
+    {
+        switch(entropy)
+        {
+        case bit_entropy::_0_000: {
+            thrust::fill(buff.data(), buff.data() + elements, false);
+        }
+        case bit_entropy::_1_000: {
+            thrust::fill(buff.data(), buff.data() + elements, true);
+        }
+        default: {
+            double* unf_dist = generator.new_uniform_distribution(seed, buff.size());
+            thrust::transform(unf_dist,
+                              unf_dist + buff.size(),
+                              buff.data(),
+                              random_to_probability_t {entropy_to_probability(entropy)});
+        };
+        }
+        seed++;
+    }
+
+    template <typename T>
+    auto generate_impl(device_generator&         generator,
+                       seed_t&                   seed,
+                       thrust::device_vector<T>& buff,
+                       std::size_t               elements,
+                       bit_entropy               entropy,
+                       T                         min,
+                       T max) -> std::enable_if_t<!std::is_same<bool, T>::value>
+    {
+
+        switch(entropy)
+        {
+        case bit_entropy::_0_000: {
+            std::mt19937                          std_generator(seed);
+            std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+            T randomValue = random_to_item_t<T>(min, max)(distribution(std_generator));
+            thrust::fill(buff.data(), buff.data() + elements, randomValue);
+            break;
+        }
+        case bit_entropy::_1_000: {
+            double* unf_dist = generator.new_uniform_distribution(seed, elements);
+            thrust::transform(
+                unf_dist, unf_dist + elements, buff.data(), random_to_item_t<T>(min, max));
+            break;
+        }
+        default: {
+        }
+        };
+        seed++;
+    }
+
+    template <typename T>
+    thrust::device_vector<T>
+    generate(const std::size_t elements, const bit_entropy entropy, T min, T max)
+    {
+        thrust::device_vector<T> output(elements);
+
+        // Prevent inf overlow which set all values in data to inf.
+        if(std::is_same<double, T>::value || std::is_same<long double, T>::value)
+        {
+            min = std::pow(std::numeric_limits<float>::lowest(),
+                           3); // use power of 3 to keep negative valueAanwa
+            max = std::pow(std::numeric_limits<float>::max(), 3);
+        }
+
+        switch(entropy)
+        {
+        case bit_entropy::_0_000:
+        case bit_entropy::_1_000: {
+            detail::generate_impl(detail::default_generator,
+                                  detail::default_seed,
+                                  output,
+                                  elements,
+                                  entropy,
+                                  min,
+                                  max);
+            break;
+        }
+        default: {
+            if(std::is_same<bool, T>::value)
+            {
+                detail::generate_impl(detail::default_generator,
+                                      detail::default_seed,
+                                      output,
+                                      elements,
+                                      entropy,
+                                      min,
+                                      max);
+            }
+            else
+            {
+                detail::generate_impl(detail::default_generator,
+                                      detail::default_seed,
+                                      output,
+                                      elements,
+                                      bit_entropy::_1_000,
+                                      min,
+                                      max);
+                const int                epochs = static_cast<int>(entropy);
+                thrust::device_vector<T> epoch_output(elements);
+
+                for(int i = 0; i < epochs; i++)
+                {
+                    detail::generate_impl(detail::default_generator,
+                                          detail::default_seed,
+                                          epoch_output,
+                                          elements,
+                                          bit_entropy::_1_000,
+                                          min,
+                                          max);
+                    thrust::transform(output.data(),
+                                      output.data() + elements,
+                                      epoch_output.data(),
+                                      output.data(),
+                                      and_t {});
+                }
+            }
+            break;
+        }
+        }
+
+        return output;
     }
 
     template <class T>
@@ -216,15 +424,13 @@ namespace detail
     };
 
     template <typename T>
-    std::size_t gen_uniform_offsets(const std::string         seed_type,
-                                    thrust::device_vector<T>& segment_offsets,
+    std::size_t gen_uniform_offsets(thrust::device_vector<T>& segment_offsets,
                                     const std::size_t         min_segment_size,
                                     const std::size_t         max_segment_size)
     {
         const T elements = segment_offsets.size() - 2;
 
         segment_offsets = bench_utils::detail::generate(segment_offsets.size(),
-                                                        seed_type,
                                                         bit_entropy::_1_000,
                                                         static_cast<T>(min_segment_size),
                                                         static_cast<T>(max_segment_size));
@@ -380,14 +586,10 @@ namespace detail
     struct device_generator_base_t
     {
         const std::size_t elements {0};
-        const std::string seed_type {"random"};
         const bit_entropy entropy {bit_entropy::_1_000};
 
-        device_generator_base_t(std::size_t        m_elements,
-                                const std::string& m_seed_type,
-                                bit_entropy        m_entropy)
+        device_generator_base_t(std::size_t m_elements, bit_entropy m_entropy)
             : elements(m_elements)
-            , seed_type(m_seed_type)
             , entropy(m_entropy)
         {
         }
@@ -395,7 +597,7 @@ namespace detail
         template <typename T>
         thrust::device_vector<T> generate(T min, T max)
         {
-            return bench_utils::detail::generate(elements, seed_type, entropy, min, max);
+            return bench_utils::detail::generate(elements, entropy, min, max);
         }
     };
 
@@ -405,12 +607,8 @@ namespace detail
         const T min {std::numeric_limits<T>::min()};
         const T max {std::numeric_limits<T>::max()};
 
-        device_vector_generator_t(std::size_t        m_elements,
-                                  const std::string& m_seed_type,
-                                  bit_entropy        m_entropy,
-                                  T                  m_min,
-                                  T                  m_max)
-            : device_generator_base_t(m_elements, m_seed_type, m_entropy)
+        device_vector_generator_t(std::size_t m_elements, bit_entropy m_entropy, T m_min, T m_max)
+            : device_generator_base_t(m_elements, m_entropy)
             , min(m_min)
             , max(m_max)
         {
@@ -425,10 +623,8 @@ namespace detail
     template <>
     struct device_vector_generator_t<void> : device_generator_base_t
     {
-        device_vector_generator_t(std::size_t        m_elements,
-                                  const std::string& m_seed_type,
-                                  bit_entropy        m_entropy)
-            : device_generator_base_t(m_elements, m_seed_type, m_entropy)
+        device_vector_generator_t(std::size_t m_elements, bit_entropy m_entropy)
+            : device_generator_base_t(m_elements, m_entropy)
         {
         }
 
@@ -443,16 +639,13 @@ namespace detail
     struct device_uniform_key_segments_generator_t
     {
         const std::size_t elements {0};
-        const std::string seed_type {"random"};
         const std::size_t min_segment_size {0};
         const std::size_t max_segment_size {0};
 
         device_uniform_key_segments_generator_t(std::size_t       m_elements,
-                                                const std::string m_seed_type,
                                                 const std::size_t m_min_segment_size,
                                                 const std::size_t m_max_segment_size)
             : elements(m_elements)
-            , seed_type(m_seed_type)
             , min_segment_size(m_min_segment_size)
             , max_segment_size(m_max_segment_size)
         {
@@ -464,8 +657,8 @@ namespace detail
             thrust::device_vector<KeyT> keys(elements);
 
             thrust::device_vector<std::size_t> segment_offsets(keys.size() + 2);
-            const std::size_t                  offsets_size = gen_uniform_offsets(
-                seed_type, segment_offsets, min_segment_size, max_segment_size);
+            const std::size_t                  offsets_size
+                = gen_uniform_offsets(segment_offsets, min_segment_size, max_segment_size);
             segment_offsets.resize(offsets_size);
 
             gen_key_segments(keys, segment_offsets);
@@ -477,11 +670,10 @@ namespace detail
     struct gen_uniform_key_segments_t
     {
         device_uniform_key_segments_generator_t operator()(const std::size_t elements,
-                                                           const std::string seed_type,
                                                            const std::size_t min_segment_size,
                                                            const std::size_t max_segment_size) const
         {
-            return {elements, seed_type, min_segment_size, max_segment_size};
+            return {elements, min_segment_size, max_segment_size};
         }
     };
 
@@ -494,20 +686,17 @@ namespace detail
     {
         template <class T>
         device_vector_generator_t<T> operator()(std::size_t       elements,
-                                                const std::string seed_type,
                                                 const bit_entropy entropy = bit_entropy::_1_000,
                                                 T                 min = std::numeric_limits<T>::min,
                                                 T max = std::numeric_limits<T>::max()) const
         {
-            return {elements, seed_type, entropy, min, max};
+            return {elements, entropy, min, max};
         }
 
-        device_vector_generator_t<void> operator()(std::size_t       elements,
-                                                   const std::string seed_type,
-                                                   const bit_entropy entropy
-                                                   = bit_entropy::_1_000) const
+        device_vector_generator_t<void>
+        operator()(std::size_t elements, const bit_entropy entropy = bit_entropy::_1_000) const
         {
-            return {elements, seed_type, entropy};
+            return {elements, entropy};
         }
 
         gen_uniform_t uniform {};

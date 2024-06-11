@@ -39,13 +39,12 @@
 struct pairs
 {
     template <typename KeyT, typename ValueT, typename Policy = thrust::detail::device_t>
-    float64_t
-    run(const std::size_t elements, const std::string seed_type, const std::string entropy_str)
+    float64_t run(const std::size_t elements, const std::string entropy_str)
     {
         const auto entropy = bench_utils::str_to_entropy(entropy_str);
 
-        thrust::device_vector<KeyT>   keys = bench_utils::generate(elements, seed_type, entropy);
-        thrust::device_vector<ValueT> vals = bench_utils::generate(elements, seed_type);
+        thrust::device_vector<KeyT>   keys = bench_utils::generate(elements, entropy);
+        thrust::device_vector<ValueT> vals = bench_utils::generate(elements);
 
         bench_utils::gpu_timer d_timer;
 
@@ -60,7 +59,6 @@ struct pairs
 template <class Benchmark, class KeyT, class ValueT>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
-                   const std::string seed_type,
                    const std::string entropy_str)
 {
     // Benchmark object
@@ -71,7 +69,7 @@ void run_benchmark(benchmark::State& state,
 
     for(auto _ : state)
     {
-        float64_t duration = benchmark.template run<KeyT, ValueT>(elements, seed_type, entropy_str);
+        float64_t duration = benchmark.template run<KeyT, ValueT>(elements, entropy_str);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -93,7 +91,6 @@ void run_benchmark(benchmark::State& state,
             .c_str(),                                                                            \
         run_benchmark<Benchmark, KeyT, ValueT>,                                                  \
         Elements,                                                                                \
-        seed_type,                                                                               \
         EntropyStr)
 
 #define BENCHMARK_VALUE_TYPE(key_type, value_type, entropy_str)       \
@@ -110,8 +107,7 @@ void run_benchmark(benchmark::State& state,
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     const std::string entropy_strs[] = {"1.000", "0.544", "0.000"};
 
@@ -131,16 +127,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string seed_type = "random";
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<pairs>("pairs", benchmarks, seed_type);
+    add_benchmarks<pairs>("pairs", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

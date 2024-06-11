@@ -39,13 +39,13 @@
 struct by_key
 {
     template <typename KeyT, typename ValueT, typename Policy = thrust::detail::device_t>
-    float64_t run(const std::size_t elements, const std::string seed_type)
+    float64_t run(const std::size_t elements)
     {
         thrust::device_vector<ValueT> input_vals(elements);
         thrust::device_vector<ValueT> output_vals(elements);
 
         thrust::device_vector<KeyT> input_keys = bench_utils::generate.uniform.key_segments(
-            elements, seed_type, 0, 5200 /*magic numbers in thrust*/);
+            elements, 0, 5200 /*magic numbers in thrust*/);
 
         bench_utils::gpu_timer d_timer;
 
@@ -62,7 +62,7 @@ struct by_key
 };
 
 template <class Benchmark, class KeyT, class ValueT>
-void run_benchmark(benchmark::State& state, const std::size_t elements, const std::string seed_type)
+void run_benchmark(benchmark::State& state, const std::size_t elements)
 {
     // Benchmark object
     Benchmark benchmark {};
@@ -72,7 +72,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
     for(auto _ : state)
     {
-        float64_t duration = benchmark.template run<KeyT, ValueT>(elements, seed_type);
+        float64_t duration = benchmark.template run<KeyT, ValueT>(elements);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -92,8 +92,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
                                      + ",value_type:" #ValueT + ",elements:" #Elements)          \
                                      .c_str(),                                                   \
                                  run_benchmark<Benchmark, KeyT, ValueT>,                         \
-                                 Elements,                                                       \
-                                 seed_type)
+                                 Elements)
 
 #define BENCHMARK_VALUE_TYPE(key_type, value_type)       \
     CREATE_BENCHMARK(key_type, value_type, 1 << 16),     \
@@ -115,8 +114,7 @@ void run_benchmark(benchmark::State& state, const std::size_t elements, const st
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     std::vector<benchmark::internal::Benchmark*> bs
         = { BENCHMARK_KEY_TYPE(int8_t),
@@ -138,16 +136,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string seed_type = "random";
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<by_key>("by_key", benchmarks, seed_type);
+    add_benchmarks<by_key>("by_key", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

@@ -40,15 +40,13 @@
 struct upper_bound
 {
     template <typename T, typename Policy = thrust::detail::device_t>
-    float64_t run(benchmark::State& state,
-                  const std::size_t elements,
-                  const std::string seed_type,
-                  const std::size_t needles_ratio)
+    float64_t
+    run(benchmark::State& state, const std::size_t elements, const std::size_t needles_ratio)
     {
         const auto needles
             = needles_ratio * static_cast<std::size_t>(static_cast<double>(elements) / 100.0f);
 
-        thrust::device_vector<T> input = bench_utils::generate(elements + needles, seed_type);
+        thrust::device_vector<T> input = bench_utils::generate(elements + needles);
         thrust::device_vector<T> output(needles);
 
         thrust::sort(input.begin(), input.begin() + elements);
@@ -74,7 +72,6 @@ struct upper_bound
 template <class Benchmark, class T>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
-                   const std::string seed_type,
                    const std::size_t needles_ratio)
 {
     // Benchmark object
@@ -85,7 +82,7 @@ void run_benchmark(benchmark::State& state,
 
     for(auto _ : state)
     {
-        float64_t duration = benchmark.template run<T>(state, elements, seed_type, needles_ratio);
+        float64_t duration = benchmark.template run<T>(state, elements, needles_ratio);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -101,7 +98,6 @@ void run_benchmark(benchmark::State& state,
                                      .c_str(),                                                   \
                                  run_benchmark<Benchmark, T>,                                    \
                                  Elements,                                                       \
-                                 seed_type,                                                      \
                                  NeedlesRatio)
 
 #define BENCHMARK_ELEMENTS(type, elements)                                     \
@@ -114,8 +110,7 @@ void run_benchmark(benchmark::State& state,
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     std::vector<benchmark::internal::Benchmark*> bs = {BENCHMARK_TYPE(int8_t),
                                                        BENCHMARK_TYPE(int16_t),
@@ -129,16 +124,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string seed_type = "random";
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<upper_bound>("upper_bound", benchmarks, seed_type);
+    add_benchmarks<upper_bound>("upper_bound", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

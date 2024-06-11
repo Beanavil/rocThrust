@@ -40,15 +40,13 @@
 struct basic
 {
     template <typename T, typename Policy = thrust::detail::device_t>
-    float64_t run(benchmark::State& state,
-                  const std::size_t elements,
-                  const std::string seed_type,
-                  const std::size_t max_segment_size)
+    float64_t
+    run(benchmark::State& state, const std::size_t elements, const std::size_t max_segment_size)
     {
         constexpr std::size_t min_segment_size = 1;
 
         thrust::device_vector<T> input = bench_utils::generate.uniform.key_segments(
-            elements, seed_type, min_segment_size, max_segment_size);
+            elements, min_segment_size, max_segment_size);
         thrust::device_vector<T> output(elements);
 
         const std::size_t unique_items = thrust::distance(
@@ -72,7 +70,6 @@ struct basic
 template <class Benchmark, class T>
 void run_benchmark(benchmark::State& state,
                    const std::size_t elements,
-                   const std::string seed_type,
                    const std::size_t max_segment_size)
 {
     // Benchmark object
@@ -83,8 +80,7 @@ void run_benchmark(benchmark::State& state,
 
     for(auto _ : state)
     {
-        float64_t duration
-            = benchmark.template run<T>(state, elements, seed_type, max_segment_size);
+        float64_t duration = benchmark.template run<T>(state, elements, max_segment_size);
         state.SetIterationTime(duration);
         gpu_times.push_back(duration);
     }
@@ -103,7 +99,6 @@ void run_benchmark(benchmark::State& state,
             .c_str(),                                                                             \
         run_benchmark<Benchmark, T>,                                                              \
         Elements,                                                                                 \
-        seed_type,                                                                                \
         MaxSegmentSize)
 
 #define BENCHMARK_ELEMENTS(type, elements)                                    \
@@ -116,8 +111,7 @@ void run_benchmark(benchmark::State& state,
 
 template <class Benchmark>
 void add_benchmarks(const std::string&                            name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    const std::string                             seed_type)
+                    std::vector<benchmark::internal::Benchmark*>& benchmarks)
 {
     std::vector<benchmark::internal::Benchmark*> bs
         = { BENCHMARK_TYPE(int8_t),
@@ -139,16 +133,12 @@ int main(int argc, char* argv[])
     benchmark::Initialize(&argc, argv);
     bench_utils::bench_naming::set_format("human"); /* either: json,human,txt*/
 
-    // Benchmark parameters
-    const std::string seed_type = "random";
-
     // Benchmark info
     bench_utils::add_common_benchmark_info();
-    benchmark::AddCustomContext("seed", seed_type);
 
     // Add benchmark
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<basic>("basic", benchmarks, seed_type);
+    add_benchmarks<basic>("basic", benchmarks);
 
     // Use manual timing
     for(auto& b : benchmarks)

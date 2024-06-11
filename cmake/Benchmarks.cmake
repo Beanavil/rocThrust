@@ -33,7 +33,6 @@ function(add_thrust_benchmark BENCHMARK_NAME BENCHMARK_SOURCE USES_GOOGLE_BENCH 
   )
 
   if(USING_ROCBENCH_DIR)
-    ## Add rocRAND for rocbench_helper
     target_link_libraries(${BENCHMARK_TARGET}
         PRIVATE
             rocthrust

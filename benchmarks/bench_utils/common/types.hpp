@@ -47,6 +47,8 @@ using uint128_t = __uint128_t;
 using float32_t = float;
 using float64_t = double;
 
+using seed_t = uint64_t;
+
 namespace detail
 {
 constexpr auto bit_entropy_default = (1 << 12) + (200 - 96); // 4200
