@@ -145,50 +145,110 @@ namespace detail{
         
     }
 
-    template<typename T>
-    thrust::device_vector<T> generate_input(
-        std::size_t elements,
-        bit_entropy entropy = bit_entropy::_1_000,
-        T min               = std::numeric_limits<T>::lowest(),
-        T max               = std::numeric_limits<T>::max()
-    ){  
-        thrust::device_vector<T> output(elements);
+    struct random_data_generator {
+        const std::size_t elements_{0};
+        const bit_entropy entropy_{bit_entropy::_1_000};
 
-        // Prevent inf overlow which set all values in data to inf.
-        if(std::is_same<double, T>::value || std::is_same<long double, T>::value){
-            min = std::pow(std::numeric_limits<float>::lowest(), 3); // use power of 3 to keep negative valueAanwa
-            max = std::pow(std::numeric_limits<float>::max(), 3);
-        }
+        random_data_generator(std::size_t elements, bit_entropy entropy) : 
+            elements_(elements),
+            entropy_(entropy)
+        {}
 
-        switch(entropy){
-            case bit_entropy::_0_000 : 
-            case bit_entropy::_1_000 : {
-                detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements, entropy, min, max);
-                break;
+        template<typename T>
+        thrust::device_vector<T> generate_input(
+            T min_bound               = std::numeric_limits<T>::lowest(),
+            T max_bound               = std::numeric_limits<T>::max()
+        ){  
+            thrust::device_vector<T> output(elements_);
+
+            T min = min_bound;
+            T max = max_bound;
+
+            // Prevent inf overlow which set all values in data to inf.
+            if(std::is_same<double, T>::value || std::is_same<long double, T>::value){
+                min = std::pow(std::numeric_limits<float>::lowest(), 3); // use power of 3 to keep negative valueAanwa
+                max = std::pow(std::numeric_limits<float>::max(), 3);
             }
-            default : {
-                if(std::is_same<bool, T>::value){
-                    detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements, entropy, min, max);
-                }else{
-                    detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements, bit_entropy::_1_000, min, max);
-                    const int epochs = static_cast<int>(entropy);
-                    thrust::device_vector<T> epoch_output(elements);
 
-                    for(int i = 0; i < epochs; i++){
-                        detail::generate_input_impl(detail::default_generator, detail::default_seed, epoch_output, elements, bit_entropy::_1_000, min, max);
-                        thrust::transform(output.data(), output.data() + elements, epoch_output.data(), output.data(), and_t{});
-                    }
+            switch(entropy_){
+                case bit_entropy::_0_000 : 
+                case bit_entropy::_1_000 : {
+                    detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements_, entropy_, min, max);
+                    break;
                 }
-                break;
+                default : {
+                    if(std::is_same<bool, T>::value){
+                        detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements_, entropy_, min, max);
+                    }else{
+                        detail::generate_input_impl(detail::default_generator, detail::default_seed, output, elements_, bit_entropy::_1_000, min, max);
+                        const int epochs = static_cast<int>(entropy_);
+                        thrust::device_vector<T> epoch_output(elements_);
+
+                        for(int i = 0; i < epochs; i++){
+                            detail::generate_input_impl(detail::default_generator, detail::default_seed, epoch_output, elements_, bit_entropy::_1_000, min, max);
+                            thrust::transform(output.data(), output.data() + elements_, epoch_output.data(), output.data(), and_t{});
+                        }
+                    }
+                    break;
+                }
             }
+
+            return output;
         }
 
-        return output;
-    }
+    };
 
+    template <typename T>
+    struct thrust_device_vector_generator_impl {
+        const std::size_t elements_;
+        const bit_entropy entropy_;
+        const T min_bound_;
+        const T max_bound_;
 
-}
-}
+        thrust_device_vector_generator_impl(
+            std::size_t elements, bit_entropy entropy,
+            T min_bound, T max_bound
+        ):
+            elements_(elements),
+            entropy_(entropy),
+            min_bound_(min_bound),
+            max_bound_(max_bound)
+        {}
+
+        operator thrust::device_vector<T>() const {
+            random_data_generator random_generator(elements_, entropy_);
+            return random_generator.generate_input<T>(min_bound_, max_bound_);
+        }
+    };
+
+    struct thrust_device_vector_generator {
+        std::size_t elements_;
+        bit_entropy entropy_;
+        long double min_bound_;
+        long double max_bound_;
+
+        thrust_device_vector_generator(
+            std::size_t elements, bit_entropy entropy,
+            long double min_bound, long double max_bound
+        ):
+            elements_(elements),
+            entropy_(entropy),
+            min_bound_(min_bound),
+            max_bound_(max_bound)
+        {}
+
+        template<typename T>
+        operator thrust::device_vector<T>() const {
+            return thrust_device_vector_generator_impl<T>(
+                elements_, entropy_,
+                min_bound_ == std::numeric_limits<long double>::infinity() ? std::numeric_limits<T>::lowest() : static_cast<T>(min_bound_),
+                max_bound_ == std::numeric_limits<long double>::infinity() ? std::numeric_limits<T>::max() : static_cast<T>(max_bound_)
+            );
+        }
+
+    };
+
+}} // namespace rocbench::detail
 
 
 #endif // ROCBENCH_GENERATOR_H

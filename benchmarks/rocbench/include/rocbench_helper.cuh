@@ -15,27 +15,33 @@ namespace rocbench {
         }
         return result;
     }
-
-    #define ROCBENCH_TYPE_AXES(...) __VA_ARGS__
-
-    #define ROCBENCH_BENCH_TYPES(task, type_axis) \
-        auto func = [](rocbench::state& state, auto typeInstance) { \
-            using T = decltype(typeInstance); \
-            task(state, T{}); \
-        }; \
-        rocbench::benchmark_executor<type_axis> executor; \
-        executor
-
-    #define ROCBENCH_EXECUTOR(macro) \
-        int main() { \
-            macro \
-            executor.execute(func); \
-            return 0; \
-        } \
-
-
 }
 
-#define generate(elements) rocbench::detail::generate_input<T>(elements)
+rocbench::detail::thrust_device_vector_generator generate(
+        std::size_t elements, rocbench::bit_entropy entropy = rocbench::bit_entropy::_1_000,
+        long double min_bound = std::numeric_limits<long double>::infinity(), 
+        long double max_bound = std::numeric_limits<long double>::infinity()
+){
+    return rocbench::detail::thrust_device_vector_generator(elements, entropy, min_bound, max_bound);
+}
+
+#define ROCBENCH_TYPE_AXES(...) __VA_ARGS__
+
+#define ROCBENCH_BENCH_TYPES(task, type_axis) \
+    auto func = [](rocbench::state& state, auto typeInstance) { \
+        using T = decltype(typeInstance); \
+        task(state, T{}); \
+    }; \
+    rocbench::benchmark_executor<type_axis> executor; \
+    executor
+
+#define ROCBENCH_EXECUTOR(macro) \
+    int main() { \
+        macro \
+        executor.execute(func); \
+        return 0; \
+    } \
+
+
 
 #endif //ROCBENCH_HELPER_CUH
